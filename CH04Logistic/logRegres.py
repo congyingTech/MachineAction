@@ -54,14 +54,19 @@ def stocGradientAsc(dataMat, labelMat):
 '''
 改进的随机梯度,增加150轮的次数计算w
 '''
-def stocGradientAsc(dataMat, labelMat, numIter=150):
+def stocGradientAsc1(dataMat, labelMat, numIter=150):
     m, n = np.shape(dataMat)
     w = np.ones(n)
     for j in range(numIter):
-        dataIndex = range(m)
+        dataIndex = list(range(m))
         for i in range(m):
-            a = 4/(1+j+i)+0.01 #a在每次迭代的时候都进行调整
+            a = 4.0/(1+j+i)+0.01 #a在每次迭代的时候都进行调整
             randIndex = int(np.random.uniform(0, len(dataIndex)))
+            h = sigmoid(np.sum(w*dataMat[randIndex]))
+            error = labelMat[randIndex] - h
+            w = w + a*error*np.array(dataMat[randIndex])
+            del(dataIndex[randIndex])
+    return w
 
 
 
@@ -95,12 +100,54 @@ def plotBestFit(w):
     plt.show()
 
 
+def classifyVector(inX, w):
+    prob = sigmoid(np.sum(inX*w))
+    if prob>0.5:
+        return 1
+    else:
+        return 0
+
+def colicTest():
+    frTrain = open('horseColicTraining.txt')
+    frTest = open('horseColicTest.txt')
+    trainingSet = []; trainingLabels = []
+    for line in frTrain.readlines():
+        currLine = line.strip().split('\t')
+        lineArr = []
+        for i in range(21): #有21个特征值
+            lineArr.append(float(currLine[i]))
+        trainingSet.append(lineArr)
+        trainingLabels.append(float(currLine[21]))
+    w = stocGradientAsc1(trainingSet, trainingLabels)
+    errCount = 0; numTest = 0
+    for line in frTest.readlines():
+        numTest += 1
+        currLine = line.strip().split('\t')
+        lineArr = []
+        for i in range(21):
+            lineArr.append(float(currLine[i]))
+        preRes = classifyVector(lineArr, w)
+        if preRes != float(currLine[21]):
+            errCount += 1
+    print('error rate = ', errCount/numTest)
+    return errCount/numTest
+
+def mutiTest():
+    numTests = 10; errorSum = 0
+    for k in range(numTests):
+        errorSum += colicTest()
+    print('average error rate is ', errorSum/numTests)
+
+
 
 
 if __name__ == "__main__":
     dataMat, labelMat = loadDataSet()
     #w = gradientAsc(dataMat, labelMat)
-    w1 = stocGradientAsc(dataMat, labelMat)
+    #w1 = stocGradientAsc(dataMat, labelMat)
+    #w2 = stocGradientAsc1(dataMat, labelMat)
+
     #plotBestFit(w)
-    print(type(w1))
-    plotBestFit(w1)
+    #plotBestFit(w1)
+    #plotBestFit(w2)
+    mutiTest()

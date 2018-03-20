@@ -72,9 +72,9 @@ def smoSimple(dataMat, labelMat, C, toler, maxIter):
 
                 b1 = b - Ei - labelMatrix[i]*(alphas[i]-alphaIold) * \
                      dataMatrix[i,:]*dataMatrix[i,:].T - \
-                     labelMatrix[j]*(alphas[j] - alphaJold)*dataMatrix[j,:]*dataMatrix[j,:].T
+                     labelMatrix[j]*(alphas[j] - alphaJold)*dataMatrix[i,:]*dataMatrix[j,:].T
                 b2 = b - Ej - labelMatrix[i]*(alphas[i]-alphaIold) * \
-                     dataMatrix[i,:]*dataMatrix[i,:].T - \
+                     dataMatrix[i,:]*dataMatrix[j,:].T - \
                      labelMatrix[j]*(alphas[j] - alphaJold)*dataMatrix[j,:]*dataMatrix[j,:].T
 
                 if (0<alphas[i]<C): b = b1 #如果åi调整好了，那么b就等于b1
@@ -91,19 +91,22 @@ def smoSimple(dataMat, labelMat, C, toler, maxIter):
     return b, alphas, w
 
 class optStruct: #创建一个数据结构
-    def __init__(self, dataMatIn, classLabels, C, toler):
+    def __init__(self, dataMatIn, classLabels, C, toler, kTup):
         self.X = dataMatIn
-        self.lableMat = classLabels
+        self.labelMat = classLabels
         self.C = C
         self.tol = toler
         self.m = np.shape(dataMatIn)[0]
         self.alphas = np.mat(np.zeros([self.m,1]))
         self.b = 0
-        self.eCache = np.mat(np.zeros([self.m,2])) #一第位是表示有效位
+        self.eCache = np.mat(np.zeros([self.m,2])) #第一位是表示有效位
+        self.K = np.mat(np.zeros([self.m, self.m]))
+        for i in range(self.m):
+            self.K[:,i] = kernelTrans(self.X, self.X[i,:], kTup)
 
 '''计算error'''
 def calEk(oS, k):
-    fXk = float(np.multiply(oS.alphas, oS.labelMat).T * (oS.X * oS.X[k, :].T)) + oS.b
+    fXk = float(np.multiply(oS.alphas, oS.labelMat).T * oS.K[:,k]) + oS.b
     Ek = fXk - float(oS.labelMat[k])
     return Ek
 
@@ -112,14 +115,12 @@ def calEk(oS, k):
 def selectJ(i, oS, Ei):
     maxK = -1; maxDeltaE = 0; Ej = 0
     oS.eCache[i] = [1, Ei]
-    print(oS.eCache[i])
     #type(eCache[:,0])
     #<class 'numpy.matrixlib.defmatrix.matrix'>
     #type(eCache[:,0].A)
     #<class 'numpy.ndarray'>
     #nonzero是把array中值非0的下标存在array[0],值为0的下标存在array[1]
     validEcacheList = np.nonzero(oS.eCache[:,0].A)[0] #validEcacheList记录不为0的行数值
-    print(validEcacheList)
     if(len(validEcacheList)) > 1:
         for k in validEcacheList:
             if k==i:continue
@@ -154,24 +155,23 @@ def innerL(i, oS):
             L = max(0, oS.alphas[i] + oS.alphas[j] - oS.C)
             H = min(oS.C, oS.alphas[i] + oS.alphas[j])
         if L == H:print('L==H');return 0
-        eta = 2 * oS.X[i, :] * oS.X[j, :].T - oS.X[i, :] * oS.X[i, :].T - \
-              oS.X[j, :] * oS.X[j, :].T
+        eta = 2 * oS.K[i,j].T - oS.K[i,i] - \
+              oS.K[j,j]
         if eta >= 0: print('eta>=0');return 0
         oS.alphas[j] -= oS.labelMat[j] * (Ei - Ej) / eta
-        oS.alphas[j] = clipAlpha(alphas[j], H, L)
+        oS.alphas[j] = clipAlpha(oS.alphas[j], H, L)
         #更新符合条件的k进入eCache中，要求的条件是alpha在H和L之间
         updateEk(oS, j)
 
         if (abs(oS.alphas[j] - alphaJOld) < 0.00001):
             print('j not moving enough');return 0
-        oS.alphas[i] += oS.labelMat[j] * oS.labelMat[i] * (alphaJOld - alphas[j])
+        oS.alphas[i] += oS.labelMat[j] * oS.labelMat[i] * (alphaJOld - oS.alphas[j])
 
-        b1 = oS.b - Ei - oS.labelMat[i] * (oS.alphas[i] - alphaJOld) * \
-                      oS.X[i, :] * oS.X[i, :].T - \
-             oS.labelMat[j] * (oS.alphas[j] - alphaJOld) * oS.X[j, :] * oS.X[j, :].T
-        b2 = oS.b - Ej - oS.labelMat[i] * (oS.alphas[i] - alphaJOld) * \
-                         oS.X[i, :] * oS.X[i, :].T - \
-             oS.labelMat[j] * (oS.alphas[j] - alphaJOld) * oS.X[j, :] * oS.X[j, :].T
+        b1 = oS.b - Ei - oS.labelMat[i] * (oS.alphas[i] - alphaJOld) *oS.K[i,i] - \
+             oS.labelMat[j] * (oS.alphas[j] - alphaJOld) * oS.K[i,j]
+
+        b2 = oS.b - Ej - oS.labelMat[i] * (oS.alphas[i] - alphaJOld) * oS.K[i,j] - \
+             oS.labelMat[j] * (oS.alphas[j] - alphaJOld) * oS.K[j,j]
 
         if (0 < oS.alphas[i] < oS.C):
             oS.b = b1  # 如果åi调整好了，那么b就等于b1
@@ -187,7 +187,7 @@ def innerL(i, oS):
 外循环代码
 '''
 def smoP(dataMatIn, classLabels, C, toler, maxIter, kTup=('lin',0)):
-    oS = optStruct(dataMatIn, classLabels, C, toler)
+    oS = optStruct(dataMatIn, classLabels, C, toler, kTup)
     iter = 0
     entireSet = True; alphaPairsChanged = 0
     #启发式的选择不是遍历所有的å，而是遍历在0-C之间(也就是在两条线之间的错误的点)错误的å
@@ -208,12 +208,55 @@ def smoP(dataMatIn, classLabels, C, toler, maxIter, kTup=('lin',0)):
         if entireSet:entireSet=False
         elif(alphaPairsChanged==0): entireSet = True
         print('iteration number: %d' % iter)
-    return oS.b, oS.alphas
+
+    w = np.multiply(oS.alphas, oS.labelMat).T * oS.X
+    return oS.b, oS.alphas, w
 
 '''计算w的值'''
+def calWs(alphas, dataArr, classLabels):
+    X = np.mat(dataArr);labelMat = np.mat(classLabels)
+    m,n = np.shape(X)
+    w = np.zeros((n,1))
+    for i in range(m):
+        w += np.multiply(alphas[i] * labelMat, X[i,:].T)
+    return w
+
+'''kernel核函数'''
+def kernelTrans(X, A, kTup):
+    m,n = np.shape(X)
+    K = np.mat(np.zeros([m,1]))
+    if kTup[0] == 'lin': K = X*A.T
+    elif kTup[0] == 'rbf':
+        for j in range(m):
+            deltaRow = X[j,:] - A
+            K[j] = deltaRow*deltaRow.T
+        K = np.exp(K/(-1*kTup[1]**2))
+    else:
+        raise NameError('Houston we have a problem..')
+    return K
+
+def testRbf(k1 = 1.3):
+    dataMat, labelMat = loadDataSet('testSetRBF.txt')
+    dataMatrix = np.mat(dataMat);labelMatrix = np.mat(labelMat).transpose()
+    b, alphas, w = smoP(dataMatrix, labelMatrix, 200, 0.0001, 10000, ('rbf', k1))
+    svIndex = np.nonzero(alphas.A > 0)[0]
+    sVs = dataMatrix[svIndex]
+    labelSvs = labelMatrix[svIndex]
+    m,n = np.shape(dataMatrix)
+    errCount = 0
+    for i in range(m):
+        kernelEval = kernelTrans(sVs, dataMatrix[i,:],('rbf', k1))
+        predict = kernelEval.T * np.multiply(labelSvs, alphas[svIndex]) + b
+        if np.sign(predict) != np.sign(labelMatrix[i]):
+            errCount += 1
+    errRate = errCount/m
+    print('error rate is %f'% errRate)
 if __name__ == '__main__':
-    dataMat, labelMat = loadDataSet('testSet.txt')
-    dataMatrix = np.mat(dataMat);labelMatrix = np.mat(labelMat).transpose() #m行1列
-    b, alphas, w = smoSimple(dataMat, labelMat, 0.6, 0.001, 40)
+    # dataMat, labelMat = loadDataSet('testSet.txt')
+    # dataMatrix = np.mat(dataMat);labelMatrix = np.mat(labelMat).transpose() #m行1列
+    # b, alphas, w = smoSimple(dataMat, labelMat, 0.6, 0.001, 40)
+    # print(b, w)
+    # b, alphas, w = smoP(dataMatrix, labelMatrix, 0.6, 0.001, 40)
+    # print(b,w)
 
-
+    testRbf()

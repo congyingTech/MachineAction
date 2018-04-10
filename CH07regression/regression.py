@@ -28,7 +28,7 @@ def lwlr(testPoint, xArr, yArr, k=1.0):
     weights = mat(eye((m)))#创建对角矩阵
     for j in range(m):
         diffMat = testPoint - xMat[j,:]
-        weights[j,j] = exp(diffMat*diffMat.T/(-2*k**2))
+        weights[j,j] = exp(diffMat*diffMat.T/(-2*k**2)) #权重是高斯核函数
     xTx = xMat.T * (weights * xMat)
     if linalg.det(xTx) == 0.0:
         print('This matrix is singular, cannot do inverse')
@@ -103,11 +103,73 @@ def ridgeRegression(xMat, yMat, lam=0.2):
     ws = denom.I * (xMat.T * yMat)
     return ws
 def ridgeTest(xArr, yArr):
-    pass
+    xMat = mat(xArr); yMat = mat(yArr).T
+    yMean = mean(yMat, 0)
+    yMat = yMat - yMean
+    #print('xMat---------', xMat)
+    xMeans = mean(xMat, 0) #求axis=0的平均值，在这里是求出每一列的平均值，总共得到1行n列个平均值
+    #print('xMeans---------', xMeans)
+    xVar = var(xMat, 0) #方差var = mean(abs(x - x.mean())**2)
+    #print(xVar)
+    xMat = (xMat-xMeans)/xVar
+    numTestPts = 30
+    wMat = zeros((numTestPts, shape(xMat)[1]))
+    for i in range(numTestPts):
+        ws = ridgeRegression(xMat, yMat,exp(i-10))
+        wMat[i,:]=ws.T
+    return wMat
+def ridgeRegreMain():
+    abX, abY = loadDataSet('abalone.txt')
+    ridgeWeights = ridgeTest(abX, abY)
+    print('ridgeWeights--------',ridgeWeights)
+    #下面绘制出了rigdeweights与log(lambda)的关系
+    import matplotlib.pyplot as plt
+    fig = plt.figure()
+    ax = fig.add_subplot(111)
+    ax.plot(ridgeWeights)
+    plt.show()
+
+def regularize(xMat):
+    xMeans = mean(xMat, 0)
+    xVar = var(xMat, 0)
+    xMat = (xMat - xMeans) / xVar
+    return xMat
+
+def stageWise(xArr, yArr, eps=0.01, numIt=100):
+    xMat = mat(xArr); yMat = mat(yArr).T
+    yMean = mean(yMat, 0)
+    yMat = yMat - yMean
+    xMat = regularize(xMat)
+    m,n = shape(xMat)
+    returnMat = zeros([numIt,n])
+    ws = zeros([n, 1]);wsTest = ws.copy(); wsMax = ws.copy()
+    for i in range(numIt):
+        lowestError = inf
+        for j in range(n):
+            for sign in [-1, 1]:
+                wsTest = ws.copy()
+                wsTest[j] += eps*sign
+                yTest = xMat * wsTest
+                rssE= rssError(yMat.A, yTest.A)
+                if rssE < lowestError:
+                    lowestError = rssE
+                    wsMax = wsTest
+        ws = wsMax.copy()
+        returnMat[i, :] = ws.T
+    return returnMat
+
+def stageWiseMain():
+    xArr, yArr = loadDataSet('abalone.txt')
+    weights = stageWise(xArr, yArr,0.001, 5000)
+    print(weights)
+
+
 
 
 
 if __name__ == '__main__':
     #main()
     #lwlrMain()
-    abaloneMain()
+    #abaloneMain()
+    #ridgeRegreMain()
+    stageWiseMain()
